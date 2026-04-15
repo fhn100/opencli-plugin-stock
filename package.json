@@ -1,0 +1,11 @@
+
+{
+  "name": "opencli-plugin-grid",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenCLI plugin: Grid Trade Analyzer",
+  "peerDependencies": {
+    "@jackwener/opencli": ">=1.0.0",
+    "@duckdb/node-api": ">=1.5.2"
+  }
+}
