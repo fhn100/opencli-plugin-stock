@@ -1,0 +1,87 @@
+import { cli, Strategy } from '@jackwener/opencli/registry';
+import { getDb } from './db.js';
+
+cli({
+  site: 'grid',
+  name: 'sync',
+  description: '同步当前价格，检查网格触发信号',
+  strategy: Strategy.PUBLIC,
+  browser: false,
+  args: [
+    { name: 'symbol', positional: true, required: true, help: '股票代码' },
+    { name: 'price', type: 'float', required: true, help: '当前价格' },
+  ],
+  columns: ['event', 'detail', 'result'],
+  func: async (_page, kwargs) => {
+    const { symbol, price } = kwargs;
+    const conn = await getDb();
+    const events = [];
+
+    const cfgR = await conn.runAndReadAll("SELECT * FROM grid_configs WHERE symbol=?", [symbol]);
+    const cfgs = cfgR.getRowObjects();
+    if (!cfgs.length) {
+      await conn.closeSync();
+      return [{ event: '\u274c 错误', detail: `未找到 ${symbol} 配置`, result: '请先执行 grid init' }];
+    }
+    const cfg = cfgs[0];
+    const { upper_price, lower_price, grid_count, shares_per_grid, grid_width } = cfg;
+
+    if (price < lower_price) {
+      events.push({ event: '\u26a0\ufe0f 越界', detail: `${price} < 下限 ${lower_price}`, result: '已跌破网格下限' });
+    } else if (price > upper_price) {
+      events.push({ event: '\u26a0\ufe0f 越界', detail: `${price} > 上限 ${upper_price}`, result: '已突破网格上限' });
+    }
+
+    const cl = Math.floor((price - lower_price) / grid_width);
+    events.push({
+      event: '\u{1f4cd} 当前位置',
+      detail: `价格 ${price} 在第 ${Math.max(0, Math.min(cl, grid_count))} 格`,
+      result: `${lower_price} \u2190 ${price} \u2192 ${upper_price}`,
+    });
+
+    // Check open buys for sell triggers
+    const openBuys = await conn.runAndReadAll(
+      "SELECT * FROM grid_trades WHERE symbol=? AND status='open' ORDER BY buy_price", [symbol]
+    );
+    for (const t of openBuys.getRowObjects()) {
+      const sl = t.grid_level + 1;
+      const sp = +(lower_price + sl * grid_width).toFixed(3);
+      if (price >= sp) {
+        const profit = +((sp - t.buy_price) * t.shares).toFixed(2);
+        await conn.run(
+          "UPDATE grid_trades SET status='closed',sell_price=?,sell_time=CURRENT_TIMESTAMP WHERE id=?",
+          [sp, t.id]
+        );
+        events.push({
+      event: '\u{1f4b0} 卖出',
+          detail: `第${t.grid_level}格 \u2192 第${sl}格`,
+          result: `${t.buy_price}\u2192${sp} | ${t.shares}股 | 盈利 \u00a5${profit}`,
+        });
+      }
+    }
+
+    // Check buy triggers
+    const openLv = new Set(openBuys.getRowObjects().map(t => t.grid_level));
+    for (let i = 0; i < grid_count; i++) {
+      const gp = +(lower_price + i * grid_width).toFixed(3);
+      if (price <= gp && !openLv.has(i)) {
+        await conn.run(
+          "INSERT INTO grid_trades (id,symbol,grid_level,buy_price,shares,status) VALUES(nextval('trade_seq'),?,?,?,?,'open')",
+          [symbol, i, gp, shares_per_grid]
+        );
+        events.push({
+          event: '\u{1f7e2} 买入',
+          detail: `第${i}格 @ ${gp}`,
+          result: `${shares_per_grid}股`,
+        });
+      }
+    }
+
+    if (!events.some(e => e.event.includes('买入') || e.event.includes('卖出'))) {
+      events.push({ event: '\u2014 无交易', detail: '当前价格未触发网格信号', result: '继续持有' });
+    }
+
+    await conn.closeSync();
+    return events;
+  },
+});
