@@ -33,20 +33,18 @@ export async function getCookie() {
   if (!cookie) {
     throw new Error("请先在配置文件中配置cookie");
   }
-  return cookie;
+  return cookie.trim();
 }
 
 export async function getUserId() {
   var cookie = await getCookie();
-  cookie = cookie.trim();
-
   // 正则提取 userid
   const match = cookie.match(/userid=(\d+)/);
   const userId = match ? match[1] : null;
   if (!userId) {
     throw new Error("配置文件中的cookie格式不正确");
   }
-  return userId;
+  return userId.trim();
 }
 
 export async function initDb() {
@@ -139,7 +137,7 @@ export async function syncAccount() {
   const conn = await getDb();
   try {
     // 同步账户
-    const stmt = await conn.prepare(`
+    var stmt = await conn.prepare(`
       WITH __input AS (
         SELECT
         http_post(
@@ -172,14 +170,21 @@ export async function syncAccount() {
       __response t
       ;
     `);
-    const res = await stmt.run(getCookie(), getUserId(), getUserId());
-    console.log(res);
+    const cookie = await getCookie();
+    const userId = await getUserId();
+    await stmt.all(cookie, userId, userId, function(err, rows) {
+        if (err) {
+            console.error("同步账户失败：", err);
+            return;
+        }
+        console.log('同步账户成功, 共同步', rows[0].Count, '条记录');
+    });
   } catch (e) {
     console.error("同步账户失败：", e);
   }
 }
 
-export async function syncTrade() {
+export async function syncTradeByFundKey(fundKey, startDate, endDate, page) {
   const conn = await getDb();
   try {
     // 创建交易匹配记录表
@@ -191,17 +196,17 @@ export async function syncTrade() {
             headers := {
             'User-Agent': 'Mozilla/5.0',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'cookie': $cookie
+            'cookie': ?
           },
         params := {
-          'userid': $userId,
-          'user_id': $userId,
-          'fund_key': $fundKey,
+          'userid': ?,
+          'user_id': ?,
+          'fund_key': ?,
           'stock_code': '',
           'stock_account': '',
-          'start_date': $startDate,
-          'end_date': $endDate,
-          'page': $page,
+          'start_date': ?,
+          'end_date': ?,
+          'page': ?,
           'count': '1000',
           'sort_type': '',
           'sort_order': '1'
@@ -244,14 +249,42 @@ export async function syncTrade() {
           value as account_name
         FROM t_dict
         WHERE type = 'fund_key'
-      ) t2 on t2.account_id = (t1.list->>'account_id')
+      ) t2 on t2.account_id = (t1.list->>'account_id');
     `);
-    await stmt.run({
-      cookie: getCookie(),
-      user_id: getUserId(),
-      user_id: getUserId(),
+    const cookie = await getCookie();
+    const userId = await getUserId();
+    let count = 0;
+    await stmt.all(cookie, userId, userId, fundKey, startDate, endDate, page, function(err, rows) {
+      if (err) {
+          console.error("同步交易记录失败：", err);
+          return;
+      }
+      count = rows[0].Count;
+      console.log('同步交易记录成功, 账户：', fundKey, '页：', page, ' 记录数：', count);
+      if (count < 1000) {
+        return;
+      }
+      page++;
+      syncTrade(fundKey, startDate, endDate, page);
     });
-    console.log("同步交易记录成功");
+  } catch (e) {
+    console.error("同步交易记录失败：", e);
+  }
+}
+
+export async function syncTrade(startDate, endDate) {
+  const conn = await getDb();
+  try {
+    // 创建交易匹配记录表
+    await conn.all(`SELECT key FROM t_dict WHERE type = 'fund_key'`, function(err, rows) {
+      if (err) {
+          console.error("同步交易记录失败：", err);
+          return;
+      }
+      for (let i = 0; i < rows.length; i++) {
+        syncTradeByFundKey(rows[i].key, startDate, endDate, 1);
+      }
+    });
   } catch (e) {
     console.error("同步交易记录失败：", e);
   }
