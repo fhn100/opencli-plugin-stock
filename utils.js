@@ -264,7 +264,7 @@ export async function syncTradeByFundKey(fundKey, startDate, endDate, page) {
       if (count < 1000) {
         return;
       }
-      syncTrade(fundKey, startDate, endDate, page++);
+      syncTradeByFundKey(fundKey, startDate, endDate, page + 1);
     });
   } catch (e) {
     console.error("同步交易记录失败：", e);
