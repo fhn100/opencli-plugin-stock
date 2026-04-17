@@ -607,17 +607,19 @@ export async function syncTrade(startDate, endDate) {
  */
 export async function tradeMatch() {
   const conn = await getDb();
-  
+  let totalMatched = 0;
+
   try {
-    const rows = await conn.all(SQL_TRADE_MATCH);
-    const count = rows[0]?.Count || 0;
-    
-    console.log('匹配交易记录成功, 共匹配', count, '条记录');
-    
-    // 递归匹配剩余记录（使用异步递归）
-    if (count > 0) {
-      await tradeMatch();
+    let count = -1;
+    while (count !== 0) {
+      const rows = await conn.all(SQL_TRADE_MATCH);
+      count = Number(rows[0]?.Count) || 0;
+      totalMatched += count;
+      if (count > 0) {
+        console.log(`匹配交易记录成功, 本轮匹配 ${count} 条`);
+      }
     }
+    console.log(`匹配交易记录完成，本次共新增 ${totalMatched} 条匹配`);
   } catch (e) {
     console.error("匹配交易记录失败：", e);
     throw e;
