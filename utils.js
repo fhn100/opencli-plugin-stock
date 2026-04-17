@@ -1,6 +1,6 @@
 process.noDeprecation = true;
 
-import duckdb from "duckdb";
+import { Database } from "duckdb-async";
 import fs from "fs";
 import { join } from "path";
 
@@ -12,7 +12,7 @@ function getDataDir() {
 
 export async function getDbPath() {
   const dataDir = await getDataDir();
-  const dbPath = join(dataDir, "grid.db");
+  const dbPath = join(dataDir, "stock.db");
   return dbPath;
 }
 
@@ -31,8 +31,8 @@ export async function getConfigPath() {
 
 export async function getDb() {
   const dbPath = await getDbPath();
-  const conn = new duckdb.Database(dbPath).connect();
-  conn.run(`
+  const conn = await Database.create(dbPath);
+  await conn.run(`
     INSTALL http_request FROM community;
     LOAD http_request;
   `);
@@ -175,13 +175,8 @@ export async function initAccount() {
     `);
     const cookie = await getCookie();
     const userId = await getUserId();
-    await stmt.all(cookie, userId, userId, function(err, rows) {
-        if (err) {
-            console.error("同步账户失败：", err);
-            return;
-        }
-        console.log('同步账户成功, 共同步', rows[0].Count, '条记录');
-    });
+    const result = await stmt.all(cookie, userId, userId);
+    console.log('同步账户成功, 共同步', result[0].Count, '条记录');
   } catch (e) {
     console.error("同步账户失败：", e);
   }
@@ -257,18 +252,13 @@ export async function syncTradeByFundKey(fundKey, startDate, endDate, page) {
     const cookie = await getCookie();
     const userId = await getUserId();
     let count = 0;
-    await stmt.all(cookie, userId, userId, fundKey, startDate, endDate, page, function(err, rows) {
-      if (err) {
-          console.error("同步交易记录失败：", err);
-          return;
-      }
-      count = rows[0].Count;
-      console.log('同步交易记录成功, 账户：', fundKey, '页：', page, ' 记录数：', count);
-      if (count < 1000) {
-        return;
-      }
-      syncTradeByFundKey(fundKey, startDate, endDate, page + 1);
-    });
+    const rows = await stmt.all(cookie, userId, userId, fundKey, startDate, endDate, page);
+    count = rows[0].Count;
+    console.log('同步交易记录成功, 账户：', fundKey, '页：', page, ' 记录数：', count);
+    if (count < 1000) {
+      return;
+    }
+    syncTradeByFundKey(fundKey, startDate, endDate, page + 1);
   } catch (e) {
     console.error("同步交易记录失败：", e);
   }
@@ -278,15 +268,10 @@ export async function syncTrade(startDate, endDate) {
   const conn = await getDb();
   try {
     // 创建交易匹配记录表
-    await conn.all(`SELECT key FROM t_dict WHERE type = 'fund_key'`, function(err, rows) {
-      if (err) {
-          console.error("同步交易记录失败：", err);
-          return;
-      }
-      for (let i = 0; i < rows.length; i++) {
-        syncTradeByFundKey(rows[i].key, startDate, endDate, 1);
-      }
-    });
+    const rows = await conn.all(`SELECT key FROM t_dict WHERE type = 'fund_key'`);
+    for (let i = 0; i < rows.length; i++) {
+      syncTradeByFundKey(rows[i].key, startDate, endDate, 1);
+    }
   } catch (e) {
     console.error("同步交易记录失败：", e);
   }
@@ -295,7 +280,6 @@ export async function syncTrade(startDate, endDate) {
 export async function tradeMatch() {
   const conn = await getDb();
   try {
-    // 创建交易匹配记录表
     const sql = `
       insert into t_trade_matched_record
       select
@@ -423,19 +407,106 @@ export async function tradeMatch() {
       where t.sell_seq = 1
       and t.buy_seq = 1
     `;
-    await conn.all(sql, function(err, rows) {
-      if (err) {
-          console.error("匹配交易记录失败：", err);
-          return;
-      }
-      const count = rows[0].Count;
-      console.log('匹配交易记录成功, 共匹配', count, '条记录');
-      if (count == 0) {
-        return;
-      }
-      tradeMatch();
-    });
+    const rows = await conn.all(sql);
+    const count = rows[0].Count;
+    console.log('匹配交易记录成功, 共匹配', count, '条记录');
+    if (count == 0) {
+      return;
+    }
+    tradeMatch();
   } catch (e) {
     console.error("匹配交易记录失败", e);
   }
+}
+
+export async function gridProfit(startMonth, endMonth) {
+  let conn = null;
+  let stmt = null;
+  let rows = [];
+  
+  try {
+    const sql = `
+      select 
+            t.account_name as 账户,
+            replace(replace(t.trans_month, '-100', ''), '-101', '') as 时间,
+            t.code as 股票代码,
+            t.name as 股票名称,
+            t.sell_count as 交易次数,
+            t.grid_profit as 单次收益,
+            t.total_profit as 总收益
+        from (
+            select 
+                t.account_id,
+                t.account_name,
+                t.trans_year,
+                t.trans_month,
+                t.code,
+                t.name,
+                count(1) as sell_count,
+                round(avg(t.profit), 2) as grid_profit,
+                sum(t.profit) as total_profit
+            from t_trade_matched_record t
+            group by
+                t.account_id,
+                t.account_name,
+                t.trans_year,
+                t.trans_month,
+                t.code,
+                t.name
+                
+            union all
+            select 
+                t.account_id,
+                t.account_name,
+                t.trans_year,
+                concat(t.trans_month, '-100') as trans_month,
+                '' as code,
+                '月收益' as name,
+                '' as sell_count,
+                '' as grid_profit,
+                sum(t.profit) as total_profit
+            from t_trade_matched_record t
+            group by
+                t.account_id,
+                t.account_name,
+                t.trans_year,
+                t.trans_month
+                
+            union all
+            select 
+                t.account_id,
+                t.account_name,
+                t.trans_year,
+                concat(max(t.trans_month), '-101') as trans_month,
+                '' as code,
+                '年收益' as name,
+                '' as sell_count,
+                '' as grid_profit,
+                sum(t.profit) as total_profit
+            from t_trade_matched_record t
+            group by
+                t.account_id,
+                t.account_name,
+                t.trans_year
+        ) t
+        WHERE 1=1
+        AND (replace(replace(t.trans_month, '-100', ''), '-101', '') >= ?  AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
+        OR (replace(replace(t.trans_month, '-100', ''), '-101', '') >= ?  AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
+    `;
+    conn = await getDb();
+    stmt = await conn.prepare(sql);
+    rows = await stmt.all(startMonth, endMonth, startMonth, endMonth);
+  } catch (e) {
+    console.error("查询网格收益失败", e);
+    rows = []; // 发生异常时返回空数组
+  } finally {
+    if (stmt) {
+      stmt.finalize();
+    }
+    if (conn) {
+      conn.close();
+    }
+  }
+  
+  return rows;
 }
