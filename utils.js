@@ -4,34 +4,46 @@ import duckdb from "duckdb";
 import fs from "fs";
 import { join } from "path";
 
-const DATA_DIR = join(import.meta.dirname, "data");
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const CONFIG_PATH = join(DATA_DIR, "config");
-try {
-  // 先判断文件是否存在
-  fs.accessSync(CONFIG_PATH);
-} catch (err) {
-  // 不存在 → 创建空文件
-  fs.writeFileSync(CONFIG_PATH, "", "utf8");
+function getDataDir() {
+  const dataDir = join(import.meta.dirname, "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  return dataDir;
 }
-console.log("配置文件路径：" + CONFIG_PATH);
-const DB_PATH = join(DATA_DIR, "grid.db");
-console.log("数据库文件路径：" + DB_PATH);
 
-let _instance = null;
-initDb();
+export async function getDbPath() {
+  const dataDir = await getDataDir();
+  const dbPath = join(dataDir, "grid.db");
+  return dbPath;
+}
+
+export async function getConfigPath() {
+  const dataDir = await getDataDir();
+  const configPath = join(dataDir, "config");
+  try {
+    // 先判断文件是否存在
+    fs.accessSync(configPath);
+  } catch (err) {
+    // 不存在 → 创建空文件
+    fs.writeFileSync(configPath, "", "utf8");
+  }
+  return configPath;
+}
 
 export async function getDb() {
-  if (!_instance) {
-    _instance = new duckdb.Database(DB_PATH);
-  }
-  return _instance.connect();
+  const dbPath = await getDbPath();
+  const conn = new duckdb.Database(dbPath).connect();
+  conn.run(`
+    INSTALL http_request FROM community;
+    LOAD http_request;
+  `);
+  return conn;
 }
 
 export async function getCookie() {
-  const cookie = fs.readFileSync(CONFIG_PATH, "utf8");
+  const configPath = await getConfigPath();
+  const cookie = fs.readFileSync(configPath, "utf8");
   if (!cookie) {
-    throw new Error("请先在配置文件中配置cookie");
+    throw new Error("请先在配置文件中配置cookie, 配置文件路径：" + configPath);
   }
   return cookie.trim();
 }
@@ -49,15 +61,6 @@ export async function getUserId() {
 
 export async function initDb() {
   const conn = await getDb();
-  try {
-    await conn.run(`
-      INSTALL http_request FROM community;
-      LOAD http_request;
-    `);
-  } catch (e) {
-    console.error("安装扩展失败：", e);
-  }
-
   try {
     // 创建字典表
     await conn.run(`
@@ -133,7 +136,7 @@ export async function initDb() {
   }
 }
 
-export async function syncAccount() {
+export async function initAccount() {
   const conn = await getDb();
   try {
     // 同步账户

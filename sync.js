@@ -1,5 +1,5 @@
 import { cli, Strategy } from "@jackwener/opencli/registry";
-import { syncAccount, syncTrade } from "./utils.js";
+import { syncTrade } from "./utils.js";
 
 function getDefaultDateRange() {
   const now = new Date();
@@ -12,7 +12,7 @@ function getDefaultDateRange() {
 }
 
 cli({
-  site: "grid",
+  site: "stock",
   name: "sync",
   description: "同步数据，不传日期则默认当月",
   strategy: Strategy.PUBLIC,
@@ -39,7 +39,6 @@ cli({
         ({ startDate, endDate } = getDefaultDateRange());
       }
       console.log(`同步范围：${startDate} ~ ${endDate}`);
-      await syncAccount();
       await syncTrade(startDate, endDate);
     } catch (e) {
       console.error("同步数据失败：", e);
