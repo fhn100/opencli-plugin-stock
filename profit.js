@@ -1,6 +1,12 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { gridProfit } from './utils.js';
 
+function getCurrentMonth() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  return `${yyyy}-${mm}`;
+}
 
 cli({
   site: 'stock',
@@ -8,9 +14,16 @@ cli({
   description: '查询网格收益',
   strategy: Strategy.PUBLIC,
   browser: false,
-  func: async (_page) => {
+  args: [
+    { name: 'start', type: 'string', positional: true, help: '开始月份，格式 YYYY-MM（默认当月）' },
+    { name: 'end', type: 'string', positional: true, help: '结束月份，格式 YYYY-MM（默认与开始月份相同）' },
+  ],
+  func: async (_page, kwargs) => {
     try {
-      const result = await gridProfit('2026-04', '2026-04');
+      const start = kwargs.start || getCurrentMonth();
+      const end = kwargs.end || start;
+      console.log(`查询范围：${start} ~ ${end}`);
+      const result = await gridProfit(start, end);
       return result;
     } catch (e) {
       console.error("查询网格收益失败：", e);
