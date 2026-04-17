@@ -291,3 +291,151 @@ export async function syncTrade(startDate, endDate) {
     console.error("同步交易记录失败：", e);
   }
 }
+
+export async function tradeMatch() {
+  const conn = await getDb();
+  try {
+    // 创建交易匹配记录表
+    const sql = `
+      insert into t_trade_matched_record
+      select
+        t.account_id,
+        t.account_name,
+        STRFTIME(t.sell_time, '%Y') as trans_year,
+        STRFTIME(t.sell_time, '%Y-%m') as trans_month,
+        t.code,
+        t.name,
+        t.sell_entry_price,
+        t.buy_entry_price,
+        t.sell_entry_count,
+        t.buy_entry_count,
+        t.sell_entry_money,
+        t.buy_entry_money,
+        t.sell_transfer_fee,
+        t.buy_transfer_fee,
+        t.sell_moneychg - t.buy_moneychg as profit,
+        t.sell_time,
+        t.buy_time,
+        t.sell_history_id,
+        t.buy_history_id
+      from (
+        select 
+          t.account_id,
+          t.account_name,
+          t.code,
+          t.name,
+          t.sell_entry_price,
+          t.buy_entry_price,
+          t.sell_entry_count,
+          t.buy_entry_count,
+          t.sell_entry_money,
+          t.buy_entry_money,
+          t.sell_transfer_fee,
+          t.buy_transfer_fee,
+          t.sell_moneychg,
+          t.buy_moneychg,
+          t.sell_time,
+          t.buy_time,
+          t.sell_history_id,
+          t.buy_history_id,
+          t.trans_times_sub,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.sell_history_id
+            ORDER BY t.trans_times_sub
+          ) as sell_seq,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.buy_history_id
+            ORDER BY t.trans_times_sub
+          ) as buy_seq
+        from (
+          select
+            t1.account_id,
+            t1.account_name,
+            t1.code,
+            t1.name,
+            t1.entry_price as sell_entry_price,
+            t2.entry_price as buy_entry_price,
+            t1.entry_count as sell_entry_count,
+            t2.entry_count as buy_entry_count,
+            t1.entry_money as sell_entry_money,
+            t2.entry_money as buy_entry_money,
+            t1.transfer_fee as sell_transfer_fee,
+            t2.transfer_fee as buy_transfer_fee,
+            t1.moneychg as sell_moneychg,
+            t2.moneychg as buy_moneychg,
+            t1.entry_date_time as sell_time,
+            t2.entry_date_time as buy_time,
+            t1.history_id as sell_history_id,
+            t2.history_id as buy_history_id,
+            t1.trans_times - t2.trans_times as trans_times_sub
+          from (
+            select 
+              t.account_id,
+              t.account_name,
+              t.code,
+              t.name,
+              t.entry_price,
+              t.entry_count,
+              t.entry_money,
+              t.transfer_fee,
+              if(t.entry_money = t.transfer_fee, t.entry_money, t.entry_money - t.transfer_fee) as moneychg,
+              cast(t.entry_date_time as timestamp) as entry_date_time,
+              t.history_id,
+              epoch(cast(t.entry_date_time as timestamp)) as trans_times
+            from t_trade_record t
+            where t.op = 2
+          ) t1
+          inner join (
+            select 
+              t.account_id,
+              t.account_name,
+              t.code,
+              t.name,
+              t.entry_price,
+              t.entry_count,
+              t.entry_money,
+              t.transfer_fee,
+              if(t.entry_money = t.transfer_fee, t.entry_money, t.entry_money + t.transfer_fee) as moneychg,
+              cast(t.entry_date_time as timestamp) as entry_date_time,
+              t.history_id,
+              epoch(cast(t.entry_date_time as timestamp)) as trans_times
+            from t_trade_record t
+            where t.op = 1
+        ) t2 
+        on t2.account_id = t1.account_id 
+        and t2.code = t1.code 
+        and t2.entry_count = t1.entry_count
+        and t2.trans_times < t1.trans_times
+      ) t
+      left join (
+          select 
+              t.sell_history_id
+          from t_trade_matched_record t
+      ) t2 on t2.sell_history_id = t.sell_history_id
+      left join (
+          select 
+              t.buy_history_id
+          from t_trade_matched_record t
+      ) t3 on t3.buy_history_id = t.buy_history_id
+      where t2.sell_history_id is null 
+      and t3.buy_history_id is null
+      ) t
+      where t.sell_seq = 1
+      and t.buy_seq = 1
+    `;
+    await conn.all(sql, function(err, rows) {
+      if (err) {
+          console.error("匹配交易记录失败：", err);
+          return;
+      }
+      const count = rows[0].Count;
+      console.log('匹配交易记录成功, 共匹配', count, '条记录');
+      if (count == 0) {
+        return;
+      }
+      tradeMatch();
+    });
+  } catch (e) {
+    console.error("匹配交易记录失败", e);
+  }
+}
