@@ -471,9 +471,9 @@ const SQL_GRID_PROFIT = `
             t.account_name,
             t.trans_year
     ) t
-    WHERE 1=1
-    AND (replace(replace(t.trans_month, '-100', ''), '-101', '') >= ?  AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
-    OR (replace(replace(t.trans_month, '-100', ''), '-101', '') >= ?  AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
+    WHERE (t.name NOT IN ('月收益', '年收益') AND replace(replace(t.trans_month, '-100', ''), '-101', '') >= ? AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
+       OR (t.name = '月收益' AND replace(replace(t.trans_month, '-100', ''), '-101', '') >= ? AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
+       OR (t.name = '年收益' AND t.trans_year = substr(?, 1, 4))
 `;
 
 // ============================ 数据库初始化 ============================
@@ -642,7 +642,7 @@ export async function gridProfit(startMonth, endMonth) {
   try {
     conn = await getDb();
     stmt = await conn.prepare(SQL_GRID_PROFIT);
-    const rows = await stmt.all(startMonth, endMonth, startMonth, endMonth);
+    const rows = await stmt.all(startMonth, endMonth, startMonth, endMonth, startMonth);
     
     return rows || [];
   } catch (e) {
