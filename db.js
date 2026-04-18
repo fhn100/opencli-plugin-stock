@@ -262,7 +262,7 @@ export const SQL = {
       GROUP BY account_id, account_name, strftime(sell_time, '%Y')
     )
     SELECT
-      t.account_name AS 账户, t.sell_date AS 时间,
+      substr(t.account_name, 1, strpos(t.account_name, '-')) || substr(t.account_name, strpos(t.account_name, '-') + 1, 1) || '*' AS 账户, t.sell_date AS 时间,
       t.code AS 股票代码, t.name AS 股票名称,
       t.sell_count AS 交易次数, t.grid_profit AS 单次收益,
       t.total_profit AS 总收益
