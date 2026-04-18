@@ -1,5 +1,5 @@
 import { cli, Strategy } from "@jackwener/opencli/registry";
-import { gridProfit } from "./business.js";
+import { syncTrade, tradeMatch, gridProfit } from "./business.js";
 
 function getCurrentMonth() {
   const now = new Date();
@@ -8,10 +8,20 @@ function getCurrentMonth() {
   return `${yyyy}-${mm}`;
 }
 
+/** YYYY-MM → { startDate: YYYYMM01, endDate: YYYYMM(lastDay) } */
+function monthToSyncRange(monthStr) {
+  const [yyyy, mm] = monthStr.split("-");
+  const lastDay = new Date(Number(yyyy), Number(mm), 0).getDate();
+  return {
+    startDate: `${yyyy}${mm}01`,
+    endDate: `${yyyy}${mm}${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
 cli({
   site: "stock",
   name: "profit",
-  description: "查询网格收益",
+  description: "同步、匹配并查询网格收益",
   strategy: Strategy.PUBLIC,
   browser: false,
   args: [
@@ -22,6 +32,16 @@ cli({
     try {
       const start = kwargs.start || getCurrentMonth();
       const end = kwargs.end || start;
+
+      // 同步查询范围内的交易记录
+      const { startDate, endDate } = monthToSyncRange(end);
+      console.log(`同步范围：${startDate} ~ ${endDate}`);
+      await syncTrade(startDate, endDate);
+
+      // 匹配交易记录
+      await tradeMatch();
+
+      // 查询收益
       console.log(`查询范围：${start} ~ ${end}`);
       return await gridProfit(start, end);
     } catch (e) {
