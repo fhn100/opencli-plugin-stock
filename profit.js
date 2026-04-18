@@ -8,16 +8,13 @@ function getCurrentMonth() {
   return `${yyyy}-${mm}`;
 }
 
-/** 获取当月日期范围 YYYYMM01 ~ YYYYMM(lastDay) */
-function getCurrentMonthRange() {
+function getDefaultDateRange() {
   const now = new Date();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const lastDay = new Date(yyyy, now.getMonth() + 1, 0).getDate();
-  return {
-    startDate: `${yyyy}${mm}01`,
-    endDate: `${yyyy}${mm}${String(lastDay).padStart(2, "0")}`,
-  };
+  const dd = String(lastDay).padStart(2, "0");
+  return { startDate: `${yyyy}${mm}01`, endDate: `${yyyy}${mm}${dd}` };
 }
 
 cli({
@@ -36,7 +33,7 @@ cli({
       const end = kwargs.end || start;
 
       // 同步当月交易记录（固定同步当月，不随查询范围变化）
-      const { startDate, endDate } = getCurrentMonthRange();
+      const { startDate, endDate } = getDefaultDateRange();
       console.log(`同步范围：${startDate} ~ ${endDate}`);
       await syncTrade(startDate, endDate);
 
