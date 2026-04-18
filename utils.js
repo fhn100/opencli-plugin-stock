@@ -466,6 +466,7 @@ const SQL_GRID_PROFIT = `
             '' as grid_profit,
             sum(t.profit) as total_profit
         from ${TABLE_NAMES.TRADE_MATCHED} t
+        where t.trans_month <= ?
         group by
             t.account_id,
             t.account_name,
@@ -642,7 +643,7 @@ export async function gridProfit(startMonth, endMonth) {
   try {
     conn = await getDb();
     stmt = await conn.prepare(SQL_GRID_PROFIT);
-    const rows = await stmt.all(startMonth, endMonth, startMonth, endMonth, startMonth);
+    const rows = await stmt.all(endMonth, startMonth, endMonth, startMonth, endMonth, startMonth);
     
     return rows || [];
   } catch (e) {
