@@ -408,73 +408,66 @@ const SQL_TRADE_MATCH = `
 `;
 
 const SQL_GRID_PROFIT = `
-  select 
-        t.account_name as 账户,
-        replace(replace(t.trans_month, '-100', ''), '-101', '') as 时间,
-        t.code as 股票代码,
-        t.name as 股票名称,
-        t.sell_count as 交易次数,
-        t.grid_profit as 单次收益,
-        t.total_profit as 总收益
-    from (
-        select 
-            t.account_id,
-            t.account_name,
-            t.trans_year,
-            t.trans_month,
-            t.code,
-            t.name,
-            count(1) as sell_count,
-            round(avg(t.profit), 2) as grid_profit,
-            sum(t.profit) as total_profit
-        from ${TABLE_NAMES.TRADE_MATCHED} t
-        group by
-            t.account_id,
-            t.account_name,
-            t.trans_year,
-            t.trans_month,
-            t.code,
-            t.name
-            
-        union all
-        select 
-            t.account_id,
-            t.account_name,
-            t.trans_year,
-            concat(t.trans_month, '-100') as trans_month,
-            '' as code,
-            '月收益' as name,
-            '' as sell_count,
-            '' as grid_profit,
-            sum(t.profit) as total_profit
-        from ${TABLE_NAMES.TRADE_MATCHED} t
-        group by
-            t.account_id,
-            t.account_name,
-            t.trans_year,
-            t.trans_month
-            
-        union all
-        select 
-            t.account_id,
-            t.account_name,
-            t.trans_year,
-            concat(max(t.trans_month), '-101') as trans_month,
-            '' as code,
-            '年收益' as name,
-            '' as sell_count,
-            '' as grid_profit,
-            sum(t.profit) as total_profit
-        from ${TABLE_NAMES.TRADE_MATCHED} t
-        where t.trans_month <= ?
-        group by
-            t.account_id,
-            t.account_name,
-            t.trans_year
-    ) t
-    WHERE (t.name NOT IN ('月收益', '年收益') AND replace(replace(t.trans_month, '-100', ''), '-101', '') >= ? AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
-       OR (t.name = '月收益' AND replace(replace(t.trans_month, '-100', ''), '-101', '') >= ? AND replace(replace(t.trans_month, '-100', ''), '-101', '') <= ?)
-       OR (t.name = '年收益' AND t.trans_year = substr(?, 1, 4))
+  WITH stock_rows AS (
+      SELECT
+          account_id,
+          account_name,
+          strftime(sell_time, '%Y-%m') AS sell_date,
+          code,
+          name,
+          CAST(count(1) AS INTEGER) AS sell_count,
+          round(avg(profit), 2) AS grid_profit,
+          CAST(sum(profit) AS DOUBLE) AS total_profit,
+          'stock' AS row_type
+      FROM ${TABLE_NAMES.TRADE_MATCHED}
+      GROUP BY account_id, account_name, sell_date, code, name
+  ),
+  month_rows AS (
+      SELECT
+          account_id,
+          account_name,
+          strftime(sell_time, '%Y-%m') AS sell_date,
+          '' AS code,
+          '月收益' AS name,
+          '' AS sell_count,
+          '' AS grid_profit,
+          CAST(sum(profit) AS DOUBLE) AS total_profit,
+          'month' AS row_type
+      FROM ${TABLE_NAMES.TRADE_MATCHED}
+      GROUP BY account_id, account_name, sell_date
+  ),
+  year_rows AS (
+      SELECT
+          account_id,
+          account_name,
+          strftime(max(sell_time), '%Y-%m') AS sell_date,
+          '' AS code,
+          '年收益' AS name,
+          '' AS sell_count,
+          '' AS grid_profit,
+          CAST(sum(profit) AS DOUBLE) AS total_profit,
+          'year' AS row_type
+      FROM ${TABLE_NAMES.TRADE_MATCHED}
+      WHERE strftime(sell_time, '%Y-%m') <= ?
+      GROUP BY account_id, account_name, strftime(sell_time, '%Y')
+  )
+  SELECT
+      t.account_name AS 账户,
+      t.sell_date AS 时间,
+      t.code AS 股票代码,
+      t.name AS 股票名称,
+      t.sell_count AS 交易次数,
+      t.grid_profit AS 单次收益,
+      t.total_profit AS 总收益
+  FROM (
+      SELECT * FROM stock_rows
+      UNION ALL
+      SELECT * FROM month_rows
+      UNION ALL
+      SELECT * FROM year_rows
+  ) t
+  WHERE t.sell_date >= ? AND t.sell_date <= ?
+     OR t.row_type = 'year' AND substr(t.sell_date, 1, 4) = substr(?, 1, 4)
 `;
 
 // ============================ 数据库初始化 ============================
@@ -643,7 +636,7 @@ export async function gridProfit(startMonth, endMonth) {
   try {
     conn = await getDb();
     stmt = await conn.prepare(SQL_GRID_PROFIT);
-    const rows = await stmt.all(endMonth, startMonth, endMonth, startMonth, endMonth, startMonth);
+    const rows = await stmt.all(endMonth, startMonth, endMonth, startMonth);
     
     return rows || [];
   } catch (e) {
