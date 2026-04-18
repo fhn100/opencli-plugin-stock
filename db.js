@@ -273,7 +273,7 @@ export const SQL = {
     ) t
     WHERE t.sell_date >= ? AND t.sell_date <= ?
        OR t.row_type = 'year' AND substr(t.sell_date, 1, 4) = substr(?, 1, 4)
-    ORDER BY t.account_name,
+    ORDER BY t.account_name, t.sell_date,
       CASE t.row_type WHEN 'stock' THEN 1 WHEN 'month' THEN 2 WHEN 'year' THEN 3 END,
       t.total_profit DESC;`,
 };
