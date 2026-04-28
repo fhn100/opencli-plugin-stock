@@ -17,6 +17,11 @@ export function getConfigPath() {
   return path;
 }
 
+export function writeConfig(config) {
+  const path = getConfigPath();
+  fs.writeFileSync(path, config, 'utf8');
+}
+
 /** 读取 Cookie（未配置时抛异常） */
 export async function getCookie() {
   const path = getConfigPath();
