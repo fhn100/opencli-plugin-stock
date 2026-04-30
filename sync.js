@@ -1,14 +1,6 @@
 import { cli, Strategy } from "@jackwener/opencli/registry";
 import { syncTrade } from "./business.js";
-
-function getDefaultDateRange() {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const lastDay = new Date(yyyy, now.getMonth() + 1, 0).getDate();
-  const dd = String(lastDay).padStart(2, "0");
-  return { startDate: `${yyyy}${mm}01`, endDate: `${yyyy}${mm}${dd}` };
-}
+import { getDefaultDateRange } from "./utils.js";
 
 cli({
   site: "stock",
