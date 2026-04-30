@@ -1,7 +1,6 @@
 import { Database } from "duckdb-async";
 import { join } from "path";
 import { getDataDir } from "./utils.js";
-import { TABLE, PAGE_SIZE } from "./constants.js";
 import { CREATE_DICT, CREATE_TRADE_RECORD, CREATE_TRADE_MATCHED } from "./sql-schema.js";
 import { SYNC_ACCOUNT, SYNC_TRADE } from "./sql-sync.js";
 import { TRADE_MATCH } from "./sql-match.js";

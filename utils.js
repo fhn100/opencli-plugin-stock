@@ -94,6 +94,44 @@ export function getTodayDate() {
   return `${yyyy}${mm}${dd}`;
 }
 
+// ============================ 脱敏工具 ============================
+
+/**
+ * 账户名称脱敏（保留姓，名替换为 *）
+ * @param {string} accountName - 原始账户名称，如 "国泰-冯海年"
+ * @returns {string} 脱敏后的账户名称，如 "国泰-冯*"
+ */
+export function maskAccountName(accountName) {
+  if (!accountName || !accountName.includes("-")) {
+    return accountName || "未知账户";
+  }
+  const idx = accountName.indexOf("-");
+  const prefix = accountName.substring(0, idx + 1);
+  const namePart = accountName.substring(idx + 1);
+  if (namePart.length > 1) {
+    return prefix + namePart.charAt(0) + "*".repeat(namePart.length - 1);
+  }
+  return accountName;
+}
+
+// ============================ 参数解析 ============================
+
+/**
+ * 从 CLI kwargs 解析日期范围
+ * 支持 start/end 参数，缺省时使用当月范围
+ * @param {object} kwargs - CLI 参数
+ * @param {string} [kwargs.start] - 开始日期 YYYYMMDD
+ * @param {string} [kwargs.end] - 结束日期 YYYYMMDD
+ * @returns {{ startDate: string, endDate: string }} 日期范围
+ */
+export function resolveDateRange(kwargs) {
+  if (kwargs?.start && kwargs?.end) {
+    return { startDate: kwargs.start, endDate: kwargs.end };
+  }
+  return getDefaultDateRange();
+}
+
+
 // ============================ 错误处理 ============================
 
 /**

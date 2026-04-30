@@ -1,6 +1,6 @@
 import { cli, Strategy } from "@jackwener/opencli/registry";
 import { syncTrade, tradeMatch } from "./business.js";
-import { getDefaultDateRange } from "./utils.js";
+import { resolveDateRange } from "./utils.js";
 
 cli({
   site: "stock",
@@ -14,9 +14,7 @@ cli({
   ],
   func: async (_page, kwargs) => {
     try {
-      const { startDate, endDate } = kwargs.start && kwargs.end
-        ? { startDate: kwargs.start, endDate: kwargs.end }
-        : getDefaultDateRange();
+      const { startDate, endDate } = resolveDateRange(kwargs);
       console.log(`同步范围：${startDate} ~ ${endDate}`);
       await syncTrade(startDate, endDate);
       await tradeMatch();

@@ -8,10 +8,7 @@ import { SQL, withDb } from "./db.js";
 
 // ============================ 数据库初始化 ============================
 
-/**
- * 初始化数据库表结构
- * 创建字典表、交易记录表、交易匹配表
- */
+/** 初始化数据库表结构 */
 export async function initDb() {
   await withDb(async (conn) => {
     for (const [name, sql] of Object.entries({
@@ -27,10 +24,7 @@ export async function initDb() {
 
 // ============================ 账户同步 ============================
 
-/**
- * 同步账户信息到字典表
- * 从 API 获取账户列表并存储到本地数据库
- */
+/** 同步账户信息到字典表 */
 export async function initAccount() {
   const cookie = await getCookie();
   const userId = await getUserId();
@@ -46,7 +40,7 @@ export async function initAccount() {
 // ============================ 交易记录同步 ============================
 
 /**
- * 按基金KEY同步交易记录（分页）
+ * 按基金KEY同步交易记录（自动分页）
  * @param {string} fundKey - 基金KEY
  * @param {string} startDate - 开始日期 YYYYMMDD
  * @param {string} endDate - 结束日期 YYYYMMDD
@@ -67,54 +61,73 @@ export async function syncTradeByFundKey(fundKey, startDate, endDate, page = 1) 
   if (count >= 1000) {
     await syncTradeByFundKey(fundKey, startDate, endDate, page + 1);
   }
-  
+
   return count;
 }
 
 /**
- * 同步所有账户的交易记录（并行处理）
+ * 同步单个账户（带错误捕获）
+ * @param {string} fundKey - 基金 KEY
+ * @param {string} startDate - 开始日期
+ * @param {string} endDate - 结束日期
+ * @returns {Promise<{fundKey: string, success: boolean, error?: string}>} 结果对象
+ */
+async function syncSingleAccount(fundKey, startDate, endDate) {
+  try {
+    await syncTradeByFundKey(fundKey, startDate, endDate);
+    return { fundKey, success: true };
+  } catch (error) {
+    console.error(`账户 ${fundKey} 同步失败:`, error.message);
+    return { fundKey, success: false, error: error.message };
+  }
+}
+
+/**
+ * 同步一批账户（并行处理）
+ * @param {string[]} fundKeys - 基金 KEY 列表
+ * @param {string} startDate - 开始日期
+ * @param {string} endDate - 结束日期
+ * @returns {Promise<{successCount: number, failCount: number}>} 本批次统计
+ */
+async function syncBatch(fundKeys, startDate, endDate) {
+  const results = await Promise.all(
+    fundKeys.map((fk) => syncSingleAccount(fk, startDate, endDate))
+  );
+
+  const successCount = results.filter((r) => r.success).length;
+  const failCount = results.filter((r) => !r.success).length;
+
+  if (failCount > 0) {
+    console.warn(`本批次 ${fundKeys.length} 个账户: ${successCount} 成功, ${failCount} 失败`);
+  }
+
+  return { successCount, failCount };
+}
+
+/**
+ * 同步所有账户的交易记录（并行分批处理）
  * @param {string} startDate - 开始日期 YYYYMMDD
  * @param {string} endDate - 结束日期 YYYYMMDD
  * @param {number} [concurrency=3] - 并发数
  */
 export async function syncTrade(startDate, endDate, concurrency = 3) {
-  await withDb(async (conn) => {
+  const fundKeys = await withDb(async (conn) => {
     const rows = await conn.all(`SELECT key FROM ${TABLE.DICT} WHERE type = 'fund_key'`);
-    const fundKeys = rows.map(row => row.key);
-    
-    console.log(`开始同步 ${fundKeys.length} 个账户，并发数: ${concurrency}`);
-    
-    // 分批并行处理
-    for (let i = 0; i < fundKeys.length; i += concurrency) {
-      const batch = fundKeys.slice(i, i + concurrency);
-      const promises = batch.map(fundKey => 
-        syncTradeByFundKey(fundKey, startDate, endDate).catch(error => {
-          console.error(`账户 ${fundKey} 同步失败:`, error.message);
-          return { fundKey, success: false, error: error.message };
-        })
-      );
-      
-      const results = await Promise.all(promises);
-      
-      // 统计本批次结果
-      const successCount = results.filter(r => r === undefined).length; // syncTradeByFundKey 成功返回 undefined
-      const failCount = results.filter(r => r && r.success === false).length;
-      
-      if (failCount > 0) {
-        console.warn(`本批次 ${batch.length} 个账户: ${successCount} 成功, ${failCount} 失败`);
-      }
-    }
-    
-    console.log("所有账户交易记录同步完成");
+    return rows.map((row) => row.key);
   });
+
+  console.log(`开始同步 ${fundKeys.length} 个账户，并发数: ${concurrency}`);
+
+  for (let i = 0; i < fundKeys.length; i += concurrency) {
+    await syncBatch(fundKeys.slice(i, i + concurrency), startDate, endDate);
+  }
+
+  console.log("所有账户交易记录同步完成");
 }
 
 // ============================ 交易匹配 ============================
 
-/**
- * 匹配交易记录（买入/卖出），循环直到无可匹配记录
- * 使用时间序列分析将买入和卖出记录配对
- */
+/** 匹配交易记录（循环直到无可匹配记录） */
 export async function tradeMatch() {
   await withDb(async (conn) => {
     let total = 0;
@@ -135,7 +148,7 @@ export async function tradeMatch() {
  * 查询网格收益
  * @param {string} startMonth - 开始月份 YYYY-MM
  * @param {string} endMonth - 结束月份 YYYY-MM
- * @returns {Promise<Array>} 收益数据数组，包含股票、月收益、年收益统计
+ * @returns {Promise<Array>} 收益数据数组
  */
 export async function gridProfit(startMonth, endMonth) {
   try {
