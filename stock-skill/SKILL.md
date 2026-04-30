@@ -1,6 +1,6 @@
 ---
 name: stock-skill
-description: "股票交易数据管理技能，支持初始化、数据同步、交易匹配和收益统计。使用场景：查看网格交易收益、同步交易数据、匹配买卖记录。触发词：股票收益、网格收益、交易统计、stock profit、同步交易、交易匹配"
+description: "股票交易数据管理技能，支持初始化、数据同步、交易匹配、收益统计和实时行情查询。使用场景：查看网格交易收益、同步交易数据、匹配买卖记录、获取持仓实时行情。触发词：股票收益、网格收益、交易统计、stock profit、同步交易、交易匹配、实时行情、持仓行情、股票行情"
 category: finance
 ---
 
@@ -17,6 +17,8 @@ category: finance
 | 匹配记录 | 匹配、配对、买卖匹配 | `opencli stock match` |
 | 首次使用 | 初始化、init | `opencli stock init` |
 | 查某只股票 | "XX股票赚了多少" | 先 profit，再从输出中筛选 |
+| 实时行情 | 行情、实时行情、持仓行情、股票行情、最新价 | `opencli stock quotes [账户]` |
+| 持仓查询 | 持仓、现在持有、手里有什么股票 | `opencli stock quotes` |
 
 ## 标准工作流
 
@@ -44,9 +46,28 @@ opencli stock profit 2026-04
 # 从输出中找到对应股票行，展示其交易次数和收益
 ```
 
+### 场景：查看持仓实时行情（最常用）
+
+用户问持仓、行情、最新价相关问题时，执行：
+
+```bash
+# 获取所有账户持仓行情
+opencli stock quotes
+
+# 获取指定账户行情
+opencli stock quotes 冯
+```
+
+**注意：** 此命令会实时调用 API 获取最新行情数据，无需提前同步。
+
 ### 场景：查询交易记录 / 匹配记录（DuckDB MCP）
 
 **优先使用 DuckDB MCP 工具直接查询**，不要写 node 脚本。
+
+**MCP工具调用方式：**
+```
+mcp_mcp_server_duckdb_query(query="SQL语句")
+```
 
 查询个股交易记录：
 
@@ -66,6 +87,15 @@ FROM t_trade_matched_record
 WHERE name LIKE '%股票名%'
 ORDER BY sell_date DESC
 LIMIT 20
+```
+
+查询今日交易：
+
+```sql
+SELECT entry_date, entry_time, code, name, op, entry_price, entry_count, entry_money
+FROM t_trade_record
+WHERE entry_date = current_date
+ORDER BY entry_time
 ```
 
 **注意：** op='1' 买入，op='2' 卖出。始终用 `op` 字段，不要用 `op_name`。
@@ -88,6 +118,35 @@ LIMIT 20
 - **必须用此命令统计收益，不要直接 SQL 查询**
 - 年收益 = 年初到查询截止月的累计（非全年）
 
+### `opencli stock quotes [account]`
+- 获取持仓股票的实时行情数据
+- `account` 参数可选，用于过滤账户名称（支持模糊匹配）
+- 实时调用 API，无需提前同步
+- 输出包含：当日盈亏、持有数量、持有金额、最新价、持有盈亏等
+
+**使用示例：**
+```bash
+# 获取所有账户持仓行情
+opencli stock quotes
+
+# 获取指定账户行情（模糊匹配）
+opencli stock quotes 冯
+opencli stock quotes 陈
+```
+
+**输出字段说明：**
+- 账户名称：脱敏显示（保留姓，名替换为*）
+- 代码：股票代码
+- 名称：股票名称
+- 当日盈亏：今日盈亏金额
+- 当日盈亏率：今日盈亏百分比
+- 持有数量：当前持有股数
+- 持有金额：当前持有市值
+- 最新价：当前市场价格
+- 持有盈亏：累计盈亏金额
+- 持有盈亏率：累计盈亏百分比
+- 汇总：账户持仓汇总信息
+
 ## 输出格式规范
 
 ### profit 输出
@@ -96,6 +155,13 @@ LIMIT 20
 - 末尾附**月收益**和**年收益**汇总行（加粗）
 - 严格按命令返回内容展示，不自行补充数据
 - 收益为正显示绿色/正值，为负显示红色/负值
+
+### quotes 输出
+
+- 按账户分组展示持仓行情
+- 每个账户末尾附**汇总**行
+- 按当日盈亏率降序排列
+- 实时数据，无需提前同步
 
 ### sync 输出
 - 成功：告知同步的记录数和时间范围
@@ -127,6 +193,9 @@ LIMIT 20
 | 无收益数据 | 未匹配 | 执行 `opencli stock match` |
 | 收益异常 | 未匹配记录 | 检查是否有未匹配的卖出（数量不等或原始持仓） |
 | DB 错误 | 表结构变更 | 执行 `opencli stock init` 重新初始化 |
+| 行情获取失败 | Cookie 过期 | 更新配置文件中的 cookie |
+| 行情获取失败 | 网络问题 | 检查网络连接 |
+| 行情获取失败 | 账户无持仓 | 确认账户是否有持仓股票 |
 
 ## 注意事项
 
