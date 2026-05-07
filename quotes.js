@@ -1,6 +1,13 @@
 process.noDeprecation = true;
 import { cli, Strategy } from "@jackwener/opencli/registry";
-import { getCookie, getUserId, getTodayDate, retry, AppError, maskAccountName } from "./utils.js";
+import {
+  getCookie,
+  getUserId,
+  getTodayDate,
+  retry,
+  AppError,
+  maskAccountName,
+} from "./utils.js";
 import { API_BASE } from "./constants.js";
 
 // ============================ API 调用 ============================
@@ -14,45 +21,53 @@ import { API_BASE } from "./constants.js";
  * @throws {AppError} API 请求失败时抛出
  */
 async function apiPost(path, params, maxRetries = 2) {
-  return retry(async () => {
-    const cookie = await getCookie();
-    const body = new URLSearchParams({
-      userid: await getUserId(),
-      ...params,
-    });
-
-    let res;
-    try {
-      res = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-          cookie,
-        },
-        body: body.toString(),
+  return retry(
+    async () => {
+      const cookie = await getCookie();
+      const body = new URLSearchParams({
+        userid: await getUserId(),
+        ...params,
       });
-    } catch (error) {
-      throw new AppError(`网络请求失败: ${error.message}`, 'NETWORK_ERROR');
-    }
 
-    if (!res.ok) {
-      throw new AppError(`HTTP ${res.status}: ${res.statusText}`, 'HTTP_ERROR', res.status);
-    }
+      let res;
+      try {
+        res = await fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            cookie,
+          },
+          body: body.toString(),
+        });
+      } catch (error) {
+        throw new AppError(`网络请求失败: ${error.message}`, "NETWORK_ERROR");
+      }
 
-    let json;
-    try {
-      json = await res.json();
-    } catch (error) {
-      throw new AppError(`JSON 解析失败: ${error.message}`, 'PARSE_ERROR');
-    }
+      if (!res.ok) {
+        throw new AppError(
+          `HTTP ${res.status}: ${res.statusText}`,
+          "HTTP_ERROR",
+          res.status,
+        );
+      }
 
-    if (json.error_code !== "0") {
-      throw new AppError(json.error_msg || "请求失败", 'API_ERROR');
-    }
+      let json;
+      try {
+        json = await res.json();
+      } catch (error) {
+        throw new AppError(`JSON 解析失败: ${error.message}`, "PARSE_ERROR");
+      }
 
-    return json.ex_data;
-  }, maxRetries, 1000);
+      if (json.error_code !== "0") {
+        throw new AppError(json.error_msg || "请求失败", "API_ERROR");
+      }
+
+      return json.ex_data;
+    },
+    maxRetries,
+    1000,
+  );
 }
 
 // ============================ 账户与行情 ============================
@@ -145,11 +160,6 @@ function buildStockItem(accountName, pos, quote) {
     名称: pos.name || "未知股票",
     当日盈亏: (profitValue * (pos.count || 0)).toFixed(2),
     当日盈亏率: quote.profit_rate || "0.00%",
-    持有数量: pos.count || 0,
-    持有金额: Number(pos.value || 0).toFixed(2),
-    最新价: pos.price || "0.00",
-    持有盈亏: Number(pos.hold_profit || 0).toFixed(2),
-    持有盈亏率: ((pos.hold_rate || 0) * 100).toFixed(2) + "%",
   };
 }
 
@@ -159,10 +169,10 @@ function buildStockItem(accountName, pos, quote) {
  * @returns {object} 汇总记录
  */
 function buildAccountSummary(stocks) {
-  const num = (key) => stocks.reduce((sum, s) => sum + (parseFloat(s[key]) || 0), 0);
+  const num = (key) =>
+    stocks.reduce((sum, s) => sum + (parseFloat(s[key]) || 0), 0);
   const totalDailyProfit = num("当日盈亏");
   const totalHoldingValue = num("持有金额");
-  const totalHoldingProfit = num("持有盈亏");
 
   return {
     账户名称: "汇总",
@@ -170,11 +180,6 @@ function buildAccountSummary(stocks) {
     名称: "",
     当日盈亏: totalDailyProfit.toFixed(2),
     当日盈亏率: formatRate(totalDailyProfit, totalHoldingValue),
-    持有数量: "",
-    持有金额: totalHoldingValue.toFixed(2),
-    最新价: "",
-    持有盈亏: totalHoldingProfit.toFixed(2),
-    持有盈亏率: formatRate(totalHoldingProfit, totalHoldingValue),
   };
 }
 
@@ -202,12 +207,17 @@ async function processAccount(userId, account) {
 
   // 构建每条记录
   const stocks = positions.map((pos) =>
-    buildStockItem(accountName, pos, quotes.get(pos.code) || { profit: 0, profit_rate: "0.00%" })
+    buildStockItem(
+      accountName,
+      pos,
+      quotes.get(pos.code) || { profit: 0, profit_rate: "0.00%" },
+    ),
   );
 
   // 按当日盈亏率降序排序
-  stocks.sort((a, b) =>
-    (parseFloat(b["当日盈亏率"]) || 0) - (parseFloat(a["当日盈亏率"]) || 0)
+  stocks.sort(
+    (a, b) =>
+      (parseFloat(b["当日盈亏率"]) || 0) - (parseFloat(a["当日盈亏率"]) || 0),
   );
 
   // 追加汇总行
@@ -262,9 +272,9 @@ cli({
       return await getQuotes(kwargs.account);
     } catch (e) {
       console.error("获取行情失败: ", e.message);
-      if (e.code === 'NETWORK_ERROR') {
+      if (e.code === "NETWORK_ERROR") {
         console.error("提示: 请检查网络连接");
-      } else if (e.code === 'API_ERROR') {
+      } else if (e.code === "API_ERROR") {
         console.error("提示: Cookie 可能已过期，请重新配置");
       }
     }
