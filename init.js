@@ -6,6 +6,7 @@ import { getDbPath } from "./db.js";
 cli({
   site: "stock",
   name: "init",
+  access: 'write',
   description: "初始化",
   strategy: Strategy.COOKIE,
   browser: true,
@@ -21,7 +22,9 @@ cli({
       const config = cookies.map(item => `${item.name}=${item.value}`).join('; ');
       console.log(config);
       await writeConfig(config);
+      console.log("配置文件初始化完成");
       await initDb();
+      console.log("数据库初始化完成");
       await initAccount();
       console.log("账户初始化完成");
     } catch (e) {

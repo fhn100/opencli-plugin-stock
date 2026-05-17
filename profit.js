@@ -5,6 +5,7 @@ import { getCurrentMonth, getDefaultDateRange } from "./utils.js";
 cli({
   site: "stock",
   name: "profit",
+  access: 'write',
   description: "同步、匹配并查询网格收益",
   strategy: Strategy.PUBLIC,
   browser: false,

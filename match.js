@@ -5,6 +5,7 @@ import { resolveDateRange } from "./utils.js";
 cli({
   site: "stock",
   name: "match",
+  access: 'write',
   description: "同步交易记录并匹配",
   strategy: Strategy.PUBLIC,
   browser: false,

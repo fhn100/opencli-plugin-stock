@@ -5,6 +5,7 @@ import { resolveDateRange } from "./utils.js";
 cli({
   site: "stock",
   name: "sync",
+  access: 'write',
   description: "同步数据，不传日期则默认当月",
   strategy: Strategy.PUBLIC,
   browser: false,

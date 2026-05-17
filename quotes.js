@@ -261,6 +261,7 @@ async function getQuotes(accountNameFilter) {
 cli({
   site: "stock",
   name: "quotes",
+  access: 'write',
   description: "获取持仓实时行情（合并持仓详情 + 实时行情）",
   strategy: Strategy.PUBLIC,
   browser: false,
