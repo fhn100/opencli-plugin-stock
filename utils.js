@@ -51,7 +51,7 @@ export async function getCookie() {
  */
 export async function getUserId() {
   const cookie = await getCookie();
-  const match = cookie.match(/userid=(\d+)/);
+  const match = cookie.match(/;\s*userid=(\d+)/);
   if (!match?.[1]) throw new Error("配置文件中的cookie格式不正确，无法提取userid");
   return match[1].trim();
 }

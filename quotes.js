@@ -34,8 +34,10 @@ async function apiPost(path, params, maxRetries = 2) {
         res = await fetch(`${API_BASE}${path}`, {
           method: "POST",
           headers: {
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Origin": "https://tzzb.10jqka.com.cn",
+            "Referer": "https://tzzb.10jqka.com.cn/pc/index.html",
             cookie,
           },
           body: body.toString(),

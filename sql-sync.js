@@ -13,7 +13,13 @@ export const SYNC_ACCOUNT = `
   WITH __input AS (
     SELECT http_post(
       'https://tzzb.10jqka.com.cn/caishen_httpserver/tzzb/caishen_fund/pc/account/v1/account_list',
-      headers := { 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'cookie': ? },
+      headers := {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Origin': 'https://tzzb.10jqka.com.cn',
+        'Referer': 'https://tzzb.10jqka.com.cn/pc/index.html',
+        'cookie': ?
+      },
       params := { 'userid': ?, 'user_id': ?, 'terminal': '1', 'version': '0.0.0' }
     ) AS res
   ),
@@ -33,7 +39,13 @@ export const SYNC_TRADE = `
   WITH __input AS (
     SELECT http_post(
       'https://tzzb.10jqka.com.cn/caishen_httpserver/tzzb/caishen_fund/pc/account/v2/get_money_history',
-      headers := { 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'cookie': ? },
+      headers := {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Origin': 'https://tzzb.10jqka.com.cn',
+        'Referer': 'https://tzzb.10jqka.com.cn/pc/index.html',
+        'cookie': ?
+      },
       params := {
         'userid': ?, 'user_id': ?, 'fund_key': ?,
         'stock_code': '', 'stock_account': '',
