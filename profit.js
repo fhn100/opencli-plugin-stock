@@ -13,7 +13,7 @@ cli({
     { name: "start", type: "string", positional: true, help: "开始月份，格式 YYYY-MM（默认当月）" },
     { name: "end", type: "string", positional: true, help: "结束月份，格式 YYYY-MM（默认与开始月份相同）" },
   ],
-  func: async (_page, kwargs) => {
+  func: async (kwargs) => {
     try {
       const start = kwargs.start || getCurrentMonth();
       const end = kwargs.end || start;

@@ -270,7 +270,7 @@ cli({
   args: [
     { name: "account", type: "string", positional: true, help: "账户名称" },
   ],
-  func: async (_page, kwargs) => {
+  func: async (kwargs) => {
     try {
       return await getQuotes(kwargs.account);
     } catch (e) {

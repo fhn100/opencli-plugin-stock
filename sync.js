@@ -13,7 +13,7 @@ cli({
     { name: "start", type: "string", positional: true, help: "开始日期，格式 YYYYMMDD" },
     { name: "end", type: "string", positional: true, help: "结束日期，格式 YYYYMMDD" },
   ],
-  func: async (_page, kwargs) => {
+  func: async (kwargs) => {
     try {
       const { startDate, endDate } = resolveDateRange(kwargs);
       console.log(`同步范围：${startDate} ~ ${endDate}`);
