@@ -1,318 +1,136 @@
 # OpenCLI Stock 插件优化说明
 
-## 优化概览
+## 优化历史
 
-本次优化针对 `opencli stock` 插件进行了全面的代码质量提升，包括代码复用、性能优化、错误处理、类型安全、配置管理、代码组织等方面。
+### v1.3.0 重构 (2026-05-23) — 消除魔法值、修复 Bug、优化架构
 
----
+#### 1. constants.js — 全部魔法值抽取
 
-## 优化项目清单
-
-### 1. ✅ 提取重复代码到 utils.js
-
-**问题：** `getDefaultDateRange()` 和 `getCurrentMonth()` 函数在多个文件中重复定义。
+**问题：** API 路径、HTTP 头、操作类型、并发数等散落在各文件中硬编码，修改一处需全局搜索。
 
 **优化内容：**
-- 将 `getDefaultDateRange()` 和 `getCurrentMonth()` 提取到 `utils.js`
-- 新增 `getTodayDate()` 工具函数
-- 在 `sync.js`、`match.js`、`profit.js` 中移除重复定义，改为导入
+- 抽取 API_BASE + API_PATH（4 个路径）
+- 抽取 HTTP_HEADERS（User-Agent、Content-Type、Origin、Referer）
+- 抽取 API_DEFAULTS（terminal、version）
+- 抽取 OP（BUY="1"、SELL="2"）、DICT_TYPE（FUND_KEY）
+- 抽取 COOKIE_REQUIRED_FIELDS、COOKIE_EXPIRY_SECONDS
+- 抽取 INIT_URL、INIT_WAIT_MS、COOKIE_DOMAIN
+- 抽取 PAGE_SIZE、SYNC_CONCURRENCY、MATCH_MAX_ITERATIONS、FETCH_TIMEOUT_MS
 
-**影响文件：**
-- `utils.js` - 新增日期工具函数
-- `sync.js` - 移除本地函数定义
-- `match.js` - 移除本地函数定义
-- `profit.js` - 移除本地函数定义
-
-**收益：**
-- 减少代码重复约 30 行
-- 统一日期处理逻辑
-- 便于维护和修改
+**收益：** 所有配置值单一来源，改一处生效全局。
 
 ---
 
-### 2. ✅ 优化数据库连接管理
+#### 2. utils.js — 修复 Bug + 使用常量
 
-**问题：** 每次调用 `withDb()` 都会创建新连接并加载 HTTP 扩展，存在性能开销。
+**问题：**
+- `getUserId()` 正则 `/;\s*userid=(\d+)/` 无法匹配 userid 在 Cookie 开头的场景
+- `resolveDateRange()` 仅传 start 时默认取当前月而非 start 所在月
+- `checkCookieValid()` 硬编码 `["userid", "v"]` 和 `86400`
 
 **优化内容：**
-- 实现 `DatabaseManager` 单例类管理数据库连接
-- 连接复用：同一连接可多次使用
-- HTTP 扩展只加载一次
-- 新增 `closeDbManager()` 用于程序退出时清理资源
-
-**影响文件：**
-- `db.js` - 完全重写连接管理逻辑
-
-**收益：**
-- 减少数据库连接创建开销
-- HTTP 扩展加载次数从 N 次降为 1 次
-- 内存使用更高效
+- 正则改为 `/(?:^|;)\s*userid=(\d+)/` 支持 Cookie 开头
+- `resolveDateRange()` 仅传 start 时自动计算该月最后一天作为 endDate
+- `checkCookieValid()` 使用 `COOKIE_REQUIRED_FIELDS` 和 `COOKIE_EXPIRY_SECONDS` 常量
 
 ---
 
-### 3. ✅ 并行同步账户优化
+#### 3. quotes.js / quotes-api.js — 拆分 CLI 与业务逻辑
 
-**问题：** `syncTrade()` 函数串行同步每个账户，多账户时耗时长。
+**问题：** quotes.js 包含 ~289 行混合了 CLI 注册、API 调用、数据处理、汇总计算，职责不清。
 
 **优化内容：**
-- 使用 `Promise.all()` 并行处理账户同步
-- 支持配置并发数（默认 3）
-- 分批处理避免资源耗尽
-- 单个账户失败不影响其他账户
+- 提取全部业务逻辑到 `quotes-api.js`（apiPost、getAccounts、passQuotes、fetchPosition、buildStockItem、buildAccountSummary、processAccount、getQuotes）
+- `quotes.js` 仅 ~26 行 CLI 入口，调用 `getQuotes()` 并处理错误提示
+- apiPost 使用 `API_BASE` + `API_PATH` + `HTTP_HEADERS` + `API_DEFAULTS` 常量
+- apiPost 添加 `AbortSignal.timeout(FETCH_TIMEOUT_MS)` 超时保护
 
-**影响文件：**
-- `business.js` - 重写 `syncTrade()` 函数
-
-**收益：**
-- 同步速度提升约 2-3 倍（取决于账户数量）
-- 单账户失败时仍能继续处理其他账户
-- 支持并发数配置
+**收益：** 职责清晰，业务逻辑可独立测试和复用。
 
 ---
 
-### 4. ✅ 优化错误处理机制
+#### 4. business.js — 常量化 + 安全上限
 
-**问题：** 错误处理较简单，缺少重试机制和详细错误信息。
+**问题：**
+- `syncTradeByFundKey` 硬编码 `1000` 分页阈值
+- `syncTrade` 硬编码并发数 `3`
+- `syncTrade` 硬编码 `"fund_key"` 字符串
+- `tradeMatch()` 无限循环无安全上限
+- `gridProfit()` 静默吞错返回空数组
 
 **优化内容：**
-- 新增 `AppError` 自定义错误类，包含错误代码
-- 新增 `retry()` 重试函数，支持指数退避
-- API 请求失败时自动重试（默认 2 次）
-- 区分网络错误、HTTP 错误、API 错误、解析错误
-- 提供更友好的错误提示（如 Cookie 过期提示）
-
-**影响文件：**
-- `utils.js` - 新增 `AppError` 和 `retry()`
-- `quotes.js` - 使用新的错误处理机制
-
-**收益：**
-- 网络波动时自动重试，提高稳定性
-- 错误信息更详细，便于排查问题
-- 用户可获得更友好的错误提示
+- 使用 `PAGE_SIZE` 替代 1000
+- 使用 `SYNC_CONCURRENCY` 替代 3
+- 使用 `DICT_TYPE.FUND_KEY` 替代 "fund_key"
+- `tradeMatch()` 加 `MATCH_MAX_ITERATIONS` 安全上限，超限时输出警告
+- `gridProfit()` 移除 try/catch，错误正常抛出让调用方处理
+- 移除 `process.noDeprecation`（迁移到 db.js）
 
 ---
 
-### 5. ✅ 添加 JSDoc 类型注释
+#### 5. db.js — 清理导出 + 信号处理
 
-**问题：** 代码缺少类型注释，可读性和维护性较差。
+**问题：**
+- 导出了 `releaseDb`、`getDb`、`closeDbManager` 但无外部调用者
+- `process.noDeprecation` 放在 business.js（业务层不该有全局副作用）
+- SIGINT/SIGTERM 处理未加 try/catch，closeDbManager 失败时可能阻塞退出
 
 **优化内容：**
-- 为所有公共函数添加 JSDoc 注释
-- 包含参数说明、返回值、异常信息
-- 添加函数功能描述
-
-**影响文件：**
-- `utils.js` - 所有函数添加注释
-- `db.js` - 所有函数添加注释
-- `business.js` - 所有函数添加注释
-- `quotes.js` - 所有函数添加注释
-
-**收益：**
-- IDE 自动补全和类型检查
-- 代码可读性提升
-- 便于新成员理解代码
+- 移除 `releaseDb`、`getDb`、`closeDbManager` 导出，仅导出 `getDbPath`、`withDb`、`SQL`
+- `withDb` 内联 stmt.finalize()，不再依赖外部 releaseDb
+- `process.noDeprecation` 统一放在 db.js（基础设施层）
+- 信号处理加 try/catch 保护
+- `closeDbManager` 改为内部函数不导出
 
 ---
 
-### 6. ✅ 优化配置管理
+#### 6. init.js — 使用常量 + 空 Cookie 校验
 
-**问题：** 配置文件只存储 Cookie 字符串，结构简单。
+**问题：** 硬编码 URL、等待时间、Cookie domain；未校验空 Cookie 列表。
 
 **优化内容：**
-- 新增 `ConfigManager` 配置管理器类
-- 支持 JSON 格式配置文件
-- 支持配置项的增删改查
-- 配置加载带缓存，提高性能
-- 新增日志工具 `Logger`，支持日志级别
-
-**影响文件：**
-- `utils.js` - 新增 `ConfigManager` 和 `Logger`
-
-**收益：**
-- 配置管理更灵活
-- 支持更多配置项（如超时、重试次数）
-- 日志输出更规范
+- 使用 `INIT_URL`、`INIT_WAIT_MS`、`COOKIE_DOMAIN` 常量
+- 添加 `cookies.length === 0` 校验，输出错误提示并提前返回
 
 ---
 
-### 7. ✅ SQL 定义拆分
+#### 7. SQL 模板常量化
 
-**问题：** 所有 SQL 定义集中在 `db.js` 中（约 200 行），可读性差。
+**问题：** sql-sync.js 硬编码完整 URL 和 HTTP 头；sql-match.js 硬编码 op=1/2；sql-profit.js WHERE 子句缺少显式括号。
 
 **优化内容：**
-- 拆分为独立的 SQL 文件：
-  - `sql-schema.js` - 表结构定义
-  - `sql-sync.js` - 同步相关 SQL
-  - `sql-match.js` - 匹配相关 SQL
-  - `sql-profit.js` - 收益查询 SQL
-- `db.js` 仅负责连接管理和常量定义
-- 为每个 SQL 添加详细注释说明
-
-**影响文件：**
-- 新增 `sql-schema.js`
-- 新增 `sql-sync.js`
-- 新增 `sql-match.js`
-- 新增 `sql-profit.js`
-- `db.js` - 移除 SQL 定义，改为导入
-
-**收益：**
-- 代码组织更清晰
-- SQL 维护更方便
-- 每个 SQL 有详细注释说明
+- `sql-sync.js`：URL 从 `API_BASE + API_PATH` 拼接，headers/params 使用 `HTTP_HEADERS`/`API_DEFAULTS`/`DICT_TYPE` 常量
+- `sql-match.js`：使用 `OP.BUY`/`OP.SELL` 替代硬编码 1/2
+- `sql-profit.js`：WHERE 子句加显式括号 `(t.sell_date >= ? AND t.sell_date <= ?) OR (t.row_type = 'year' AND ...)` 消除歧义
 
 ---
 
-## 新增文件
+#### 8. 修复的 Bug
 
-| 文件 | 说明 |
-|------|------|
-| `sql-schema.js` | 表结构 CREATE 语句 |
-| `sql-sync.js` | 同步相关 SQL |
-| `sql-match.js` | 交易匹配 SQL |
-| `sql-profit.js` | 收益查询 SQL |
-
----
-
-## 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `utils.js` | 新增日期工具、错误处理、配置管理、日志工具 |
-| `db.js` | 重构连接管理，移除 SQL 定义 |
-| `business.js` | 添加 JSDoc，优化并行同步 |
-| `quotes.js` | 使用新的错误处理机制，添加 JSDoc |
-| `sync.js` | 使用 utils.js 中的日期函数 |
-| `match.js` | 使用 utils.js 中的日期函数 |
-| `profit.js` | 使用 utils.js 中的日期函数 |
+| Bug | 修复 |
+|-----|------|
+| getUserId() 正则无法匹配 Cookie 开头的 userid | 改为 `/(?:^|;)\s*userid=(\d+)/` |
+| resolveDateRange() 仅传 start 时取当前月而非 start 所在月 | 自动计算 start 所在月最后一天 |
+| quotes 汇总行盈亏率始终为 0 | buildAccountSummary 使用持有金额而非持有数量计算 |
+| passQuotes zuoshou=0 时除零崩溃 | 加 `zuoshou > 0` 保护，返回 "0.00%" |
+| tradeMatch 无限循环无安全退出 | 加 MATCH_MAX_ITERATIONS 上限 |
+| gridProfit 静默吞错返回空数组 | 移除 try/catch，正常抛出 |
 
 ---
 
-## 性能提升估算
+#### 9. 文档更新
 
-| 优化项 | 预期提升 |
-|--------|----------|
-| 数据库连接复用 | 减少 50%+ 连接开销 |
-| 并行同步账户 | 速度提升 2-3 倍 |
-| HTTP 扩展加载 | 从 N 次降为 1 次 |
-| API 请求重试 | 提高 20%+ 成功率 |
+- `AGENTS.md` 全面更新：文件职责、架构说明、数据路径修正（grid.db → stock.db）
+- `README.md` 全面更新：精简安装指南、更新配置说明、项目结构、新增 v1.3.0 changelog
+- `OPTIMIZATION.md` 更新为本次重构内容
 
 ---
 
-## 使用示例
+### v1.2.0 优化 (2026-04-30) — 连接管理、并行同步、SQL 拆分
 
-### 配置管理器
-
-```javascript
-import { configManager } from './utils.js';
-
-// 设置配置
-configManager.set('timeout', 5000);
-configManager.set('maxRetries', 3);
-
-// 获取配置
-const timeout = configManager.get('timeout', 3000);
-```
-
-### 日志工具
-
-```javascript
-import { createLogger, LogLevel } from './utils.js';
-
-const logger = createLogger('MyModule');
-logger.level = LogLevel.DEBUG;
-
-logger.info('操作开始');
-logger.debug('详细信息');
-logger.error('操作失败', error);
-```
-
-### 错误处理
-
-```javascript
-import { AppError, retry } from './utils.js';
-
-// 使用重试
-const data = await retry(async () => {
-  return await fetchData();
-}, 3, 1000);
-
-// 抛出自定义错误
-throw new AppError('请求失败', 'API_ERROR', 400);
-```
-
----
-
-## 后续建议
-
-### 可选优化（低优先级）
-
-1. **添加 TypeScript 支持** - 提供完整类型定义
-2. **添加单元测试** - 确保代码质量
-3. **添加集成测试** - 测试完整流程
-4. **性能监控** - 添加性能指标收集
-5. **国际化支持** - 支持多语言错误信息
-
----
-
-## 注意事项
-
-1. **向后兼容**：所有优化保持向后兼容，现有代码无需修改
-2. **配置文件**：新增的 `config.json` 是可选的，原有 `config` 文件仍可用
-3. **数据库**：数据库结构未改变，无需迁移
-4. **依赖**：无新增外部依赖
-
----
-
-## 测试建议
-
-优化完成后建议进行以下测试：
-
-1. **功能测试**
-   - `opencli stock init` - 初始化
-   - `opencli stock sync` - 同步数据
-   - `opencli stock match` - 匹配交易
-   - `opencli stock profit` - 查询收益
-   - `opencli stock quotes` - 查询行情
-
-2. **性能测试**
-   - 对比优化前后同步时间
-   - 测试多账户并行同步
-
-3. **错误测试**
-   - 断网情况下测试重试机制
-   - 测试 Cookie 过期时的错误提示
-
----
-
-*优化完成时间：2026-04-30*
-*优化项目：8 项*
-*影响文件：12 个*
-
----
-
-## 测试结果 ✅
-
-所有功能测试已通过：
-
-### 1. help 命令测试
-- `opencli stock init -h` ✅
-- `opencli stock sync -h` ✅
-- `opencli stock match -h` ✅
-- `opencli stock profit -h` ✅
-- `opencli stock quotes -h` ✅
-
-### 2. 功能测试
-- `opencli stock profit` ✅
-  - 并行同步生效（"开始同步 4 个账户，并发数: 3"）
-  - 数据同步成功
-  - 匹配成功
-  - 收益查询成功
-  
-- `opencli stock quotes` ✅
-  - API 请求成功
-  - 账户名称脱敏正常
-  - 行情数据获取正常
-
-### 3. 修复的 Bug
-- 修复了循环依赖问题（SQL 文件导入 db.js 中的 TABLE）
-- 新增 `constants.js` 文件存放常量，打破循环依赖
+- 数据库连接管理重构（DatabaseManager 单例）
+- 多账户并行同步（Promise.all + 分批）
+- 错误处理增强（AppError + retry）
+- JSDoc 类型注释
+- SQL 定义按功能模块拆分
+- 新增 constants.js 打破循环依赖
