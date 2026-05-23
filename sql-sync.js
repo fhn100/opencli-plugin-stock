@@ -3,7 +3,7 @@
  * 包含账户同步和交易记录同步的 SQL
  */
 
-import { TABLE, PAGE_SIZE } from "./constants.js";
+import { TABLE, PAGE_SIZE, API_BASE, API_PATH, HTTP_HEADERS, API_DEFAULTS, DICT_TYPE } from "./constants.js";
 
 /**
  * 同步账户信息 SQL
@@ -12,22 +12,22 @@ import { TABLE, PAGE_SIZE } from "./constants.js";
 export const SYNC_ACCOUNT = `
   WITH __input AS (
     SELECT http_post(
-      'https://tzzb.10jqka.com.cn/caishen_httpserver/tzzb/caishen_fund/pc/account/v1/account_list',
+      '${API_BASE}${API_PATH.ACCOUNT_LIST}',
       headers := {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'Origin': 'https://tzzb.10jqka.com.cn',
-        'Referer': 'https://tzzb.10jqka.com.cn/pc/index.html',
+        'User-Agent': '${HTTP_HEADERS.USER_AGENT}',
+        'Content-Type': '${HTTP_HEADERS.CONTENT_TYPE}',
+        'Origin': '${HTTP_HEADERS.ORIGIN}',
+        'Referer': '${HTTP_HEADERS.REFERER}',
         'cookie': ?
       },
-      params := { 'userid': ?, 'user_id': ?, 'terminal': '1', 'version': '0.0.0' }
+      params := { 'userid': ?, 'user_id': ?, 'terminal': '${API_DEFAULTS.TERMINAL}', 'version': '${API_DEFAULTS.VERSION}' }
     ) AS res
   ),
   __response AS (
     SELECT unnest(from_json(((decode(res.body)->>'ex_data')::JSON)->'common', '["json"]')) AS common FROM __input
   )
   INSERT OR REPLACE INTO ${TABLE.DICT}(key, type, value)
-  SELECT t.common->>'fund_key' AS key, 'fund_key' AS type, t.common->>'manualname' AS value
+  SELECT t.common->>'fund_key' AS key, '${DICT_TYPE.FUND_KEY}' AS type, t.common->>'manualname' AS value
   FROM __response t;`;
 
 /**
@@ -38,12 +38,12 @@ export const SYNC_ACCOUNT = `
 export const SYNC_TRADE = `
   WITH __input AS (
     SELECT http_post(
-      'https://tzzb.10jqka.com.cn/caishen_httpserver/tzzb/caishen_fund/pc/account/v2/get_money_history',
+      '${API_BASE}${API_PATH.SYNC_TRADE}',
       headers := {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'Origin': 'https://tzzb.10jqka.com.cn',
-        'Referer': 'https://tzzb.10jqka.com.cn/pc/index.html',
+        'User-Agent': '${HTTP_HEADERS.USER_AGENT}',
+        'Content-Type': '${HTTP_HEADERS.CONTENT_TYPE}',
+        'Origin': '${HTTP_HEADERS.ORIGIN}',
+        'Referer': '${HTTP_HEADERS.REFERER}',
         'cookie': ?
       },
       params := {
@@ -80,5 +80,5 @@ export const SYNC_TRADE = `
   FROM __response t1
   INNER JOIN (
     SELECT key AS account_id, value AS account_name
-    FROM ${TABLE.DICT} WHERE type = 'fund_key'
+    FROM ${TABLE.DICT} WHERE type = '${DICT_TYPE.FUND_KEY}'
   ) t2 ON t2.account_id = (t1.list->>'account_id');`;

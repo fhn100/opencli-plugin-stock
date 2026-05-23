@@ -6,6 +6,8 @@ import { SYNC_ACCOUNT, SYNC_TRADE } from "./sql-sync.js";
 import { TRADE_MATCH } from "./sql-match.js";
 import { GRID_PROFIT } from "./sql-profit.js";
 
+process.noDeprecation = true;
+
 // ============================ 数据库连接管理 ============================
 
 /**
@@ -73,28 +75,6 @@ export function getDbPath() {
 }
 
 /**
- * 获取数据库连接（自动加载 HTTP 扩展）
- * @returns {Promise<object>} 数据库连接对象
- */
-export async function getDb() {
-  return dbManager.getConnection();
-}
-
-/**
- * 安全释放数据库资源（现在连接由管理器管理，此函数保留兼容性）
- * @param {object} conn - 数据库连接
- * @param {object} stmt - 预处理语句
- */
-export async function releaseDb(conn, stmt) {
-  try {
-    if (stmt) await stmt.finalize();
-    // 连接由 DatabaseManager 管理，不再关闭
-  } catch (e) {
-    console.error("释放数据库资源失败:", e);
-  }
-}
-
-/**
  * 执行数据库操作的通用封装
  * 自动管理预处理语句的生命周期
  * @param {Function} fn - 接收 (conn, stmt) 的回调
@@ -102,21 +82,24 @@ export async function releaseDb(conn, stmt) {
  * @returns {Promise<*>} fn 的返回值
  */
 export async function withDb(fn, sql) {
-  const conn = await getDb();
+  const conn = await dbManager.getConnection();
   const stmt = sql ? await conn.prepare(sql) : null;
   try {
     return await fn(conn, stmt);
   } finally {
-    await releaseDb(conn, stmt);
+    if (stmt) {
+      try { await stmt.finalize(); } catch (_) {}
+    }
   }
 }
 
-/**
- * 关闭数据库管理器（程序退出时调用）
- */
-export async function closeDbManager() {
+// 进程退出清理（内部函数，不导出）
+async function closeDbManager() {
   await dbManager.closeConnection();
 }
+
+process.on("SIGINT", async () => { try { await closeDbManager(); } catch (_) {} process.exit(0); });
+process.on("SIGTERM", async () => { try { await closeDbManager(); } catch (_) {} process.exit(0); });
 
 // ============================ 常量 ============================
 

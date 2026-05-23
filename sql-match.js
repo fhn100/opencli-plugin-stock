@@ -3,13 +3,13 @@
  * 包含交易记录匹配的 SQL
  */
 
-import { TABLE } from "./constants.js";
+import { TABLE, OP } from "./constants.js";
 
 /**
  * 交易匹配 SQL
  * 将买入和卖出记录按 account_id + code + entry_count 配对
  * 使用时间序列分析确保买入时间早于卖出时间
- * 
+ *
  * 匹配逻辑：
  * 1. 筛选卖出记录 (op=2) 和买入记录 (op=1)
  * 2. 按 account_id + code + entry_count 关联
@@ -52,7 +52,7 @@ export const TRADE_MATCH = `
           CAST(t.entry_date_time AS TIMESTAMP) AS entry_date_time,
           t.history_id,
           EPOCH(CAST(t.entry_date_time AS TIMESTAMP)) AS trans_times
-        FROM ${TABLE.TRADE_RECORD} t WHERE t.op = 2
+        FROM ${TABLE.TRADE_RECORD} t WHERE t.op = ${OP.SELL}
       ) t1
       INNER JOIN (
         SELECT
@@ -62,7 +62,7 @@ export const TRADE_MATCH = `
           CAST(t.entry_date_time AS TIMESTAMP) AS entry_date_time,
           t.history_id,
           EPOCH(CAST(t.entry_date_time AS TIMESTAMP)) AS trans_times
-        FROM ${TABLE.TRADE_RECORD} t WHERE t.op = 1
+        FROM ${TABLE.TRADE_RECORD} t WHERE t.op = ${OP.BUY}
       ) t2
       ON t2.account_id = t1.account_id AND t2.code = t1.code
          AND t2.entry_count = t1.entry_count AND t2.trans_times < t1.trans_times

@@ -59,8 +59,8 @@ export const GRID_PROFIT = `
     UNION ALL SELECT * FROM month_rows
     UNION ALL SELECT * FROM year_rows
   ) t
-  WHERE t.sell_date >= ? AND t.sell_date <= ?
-     OR t.row_type = 'year' AND substr(t.sell_date, 1, 4) = substr(?, 1, 4)
+  WHERE (t.sell_date >= ? AND t.sell_date <= ?)
+     OR (t.row_type = 'year' AND substr(t.sell_date, 1, 4) = substr(?, 1, 4))
   ORDER BY t.account_name, t.sell_date,
     CASE t.row_type WHEN 'stock' THEN 1 WHEN 'month' THEN 2 WHEN 'year' THEN 3 END,
     t.total_profit DESC;`;

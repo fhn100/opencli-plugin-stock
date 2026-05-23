@@ -1,9 +1,5 @@
-process.noDeprecation = true;
-
-import fs from "fs";
-import { join } from "path";
-import { getCookie, getUserId } from "./utils.js";
-import { TABLE } from "./constants.js";
+import { getCookie, getUserId, checkCookieValid } from "./utils.js";
+import { TABLE, PAGE_SIZE, DICT_TYPE, SYNC_CONCURRENCY, MATCH_MAX_ITERATIONS } from "./constants.js";
 import { SQL, withDb } from "./db.js";
 
 // ============================ 数据库初始化 ============================
@@ -26,8 +22,9 @@ export async function initDb() {
 
 /** 同步账户信息到字典表 */
 export async function initAccount() {
-  const cookie = await getCookie();
-  const userId = await getUserId();
+  checkCookieValid();
+  const cookie = getCookie();
+  const userId = getUserId();
 
   const count = await withDb(async (_conn, stmt) => {
     const rows = await stmt.all(cookie, userId, userId);
@@ -48,8 +45,9 @@ export async function initAccount() {
  * @returns {Promise<number>} 同步的记录数
  */
 export async function syncTradeByFundKey(fundKey, startDate, endDate, page = 1) {
-  const cookie = await getCookie();
-  const userId = await getUserId();
+  checkCookieValid();
+  const cookie = getCookie();
+  const userId = getUserId();
 
   const count = await withDb(async (_conn, stmt) => {
     const rows = await stmt.all(cookie, userId, userId, fundKey, startDate, endDate, page);
@@ -58,7 +56,7 @@ export async function syncTradeByFundKey(fundKey, startDate, endDate, page = 1) 
     return n;
   }, SQL.SYNC_TRADE);
 
-  if (count >= 1000) {
+  if (count >= PAGE_SIZE) {
     await syncTradeByFundKey(fundKey, startDate, endDate, page + 1);
   }
 
@@ -110,9 +108,9 @@ async function syncBatch(fundKeys, startDate, endDate) {
  * @param {string} endDate - 结束日期 YYYYMMDD
  * @param {number} [concurrency=3] - 并发数
  */
-export async function syncTrade(startDate, endDate, concurrency = 3) {
+export async function syncTrade(startDate, endDate, concurrency = SYNC_CONCURRENCY) {
   const fundKeys = await withDb(async (conn) => {
-    const rows = await conn.all(`SELECT key FROM ${TABLE.DICT} WHERE type = 'fund_key'`);
+    const rows = await conn.all(`SELECT key FROM ${TABLE.DICT} WHERE type = '${DICT_TYPE.FUND_KEY}'`);
     return rows.map((row) => row.key);
   });
 
@@ -132,11 +130,16 @@ export async function tradeMatch() {
   await withDb(async (conn) => {
     let total = 0;
     let count = -1;
-    while (count !== 0) {
+    let iterations = 0;
+    while (count !== 0 && iterations < MATCH_MAX_ITERATIONS) {
       const rows = await conn.all(SQL.TRADE_MATCH);
       count = Number(rows[0]?.Count) || 0;
       total += count;
+      iterations++;
       if (count > 0) console.log(`匹配交易记录成功, 本轮匹配 ${count} 条`);
+    }
+    if (iterations >= MATCH_MAX_ITERATIONS && count !== 0) {
+      console.warn(`匹配达到安全上限 ${MATCH_MAX_ITERATIONS} 次，可能存在异常数据`);
     }
     console.log(`匹配交易记录完成，本次共新增 ${total} 条匹配`);
   });
@@ -151,12 +154,7 @@ export async function tradeMatch() {
  * @returns {Promise<Array>} 收益数据数组
  */
 export async function gridProfit(startMonth, endMonth) {
-  try {
-    return await withDb(async (_conn, stmt) => {
-      return await stmt.all(endMonth, startMonth, endMonth, startMonth);
-    }, SQL.GRID_PROFIT);
-  } catch (e) {
-    console.error("查询网格收益失败:", e);
-    return [];
-  }
+  return await withDb(async (_conn, stmt) => {
+    return await stmt.all(endMonth, startMonth, endMonth, startMonth);
+  }, SQL.GRID_PROFIT);
 }
